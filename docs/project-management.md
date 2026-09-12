@@ -161,12 +161,16 @@ Add another scoped `AGENTS.md` only when a directory develops genuinely differen
 
 ## Documentation layout
 
-Target documentation layout:
+Current and target documentation layout:
 
 ```text
 docs/
 ├── project-management.md
-├── development-operation-record.md
+├── development-log/
+│   ├── README.md
+│   └── YYYY/
+│       └── MM/
+│           └── YYYY-MM-DD.md
 ├── architecture/
 │   ├── overview.md
 │   └── rng-pipeline.md
@@ -178,9 +182,11 @@ docs/
     └── memory-layout.md
 ```
 
+`docs/development-log/` records development work, fixes, configuration changes, Git/environment operations, and daily results. Follow `docs/development-log/README.md` and keep same-day items in the same dated file.
+
 Directories and files under `architecture/` and `research/` should be created as material becomes sufficiently durable; empty placeholder documents are not required.
 
-`development-operation-record.md` is for repository/environment/Git operation history, not for replacing issues, PRs, or technical research documents.
+The development log does not replace issues, PRs, or technical research documents.
 
 ## Issue and PR conventions
 
