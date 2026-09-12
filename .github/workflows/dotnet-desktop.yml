@@ -2,9 +2,9 @@ name: .NET Core Desktop
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, develop ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, develop ]
 
 jobs:
 
@@ -29,7 +29,7 @@ jobs:
 
     - name: Restore the solution
       run: dotnet restore
-    
+
     - name: Publish
       run: |
         dotnet build --configuration $env:Configuration --no-restore
