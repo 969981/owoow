@@ -83,7 +83,7 @@ Do not change RNG call order only to make a desired output appear correct.
 
 Keep durable project-management rules in `docs/project-management.md`.
 
-Keep environment/Git operation history in `docs/development-operation-record.md`.
+Keep development, fix, configuration, Git, environment, and repository-operation history under `docs/development-log/YYYY/MM/YYYY-MM-DD.md`, following `docs/development-log/README.md`.
 
 Research notes should live under `docs/research/` as that area is created and expanded.
 
