@@ -591,6 +591,7 @@ The Sword/Shield `1.3.2` labels below are based on the project resource descript
 | hactool | `E:\Test\hactool` | `/mnt/e/Test/hactool` | NCA/NSP and related unpacking; root executable is `hactool.exe` |
 | nstool v1.9.2 x64 | `E:\Test\nstool-v1.9.2-win_x64` | `/mnt/e/Test/nstool-v1.9.2-win_x64` | NSO/NSP/NCZ and Switch file inspection; executable is `nstool.exe` |
 | PokeBot / SysBot reference | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX\PKHeX-Tools\PokeBot` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX/PKHeX-Tools/PokeBot` | Sword/Shield pointer, offset, memory-read, and automation implementation reference |
+| SysBot.Base project dependency | `D:\WorkSpace\Pokemon\RNG\Outbreaker\SysBot.Base` | `/mnt/d/WorkSpace/Pokemon/RNG/Outbreaker/SysBot.Base` | External `SysBot.Base.csproj` project referenced by owoow; output is `bin\$(Configuration)\net10.0\SysBot.Base.dll` |
 | PKHeX source | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX` | PKHeX.Core legality, RNG, structure, and game-version implementation reference |
 | CaptureSight source | `D:\WorkSpace\Pokemon\RNG\CaptureSight` | `/mnt/d/WorkSpace/Pokemon/RNG/CaptureSight` | SWSH RAM offsets, pointer chains, runtime readers, and structure reference |
 | `swsh-mods-exl` | External repository: `https://github.com/Lincoln-LM/swsh-mods-exl` | N/A | exlaunch-based Sword/Shield 1.3.2 hook and mod project reference; no local clone path configured |

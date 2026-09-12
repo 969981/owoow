@@ -35,6 +35,7 @@
 | hactool | `E:\Test\hactool` | `/mnt/e/Test/hactool` | NCA/NSP 等 Nintendo Switch 文件解包；可执行文件为 `hactool.exe` |
 | nstool v1.9.2 x64 | `E:\Test\nstool-v1.9.2-win_x64` | `/mnt/e/Test/nstool-v1.9.2-win_x64` | NSO/NSP/NCZ 等文件检查；可执行文件为 `nstool.exe` |
 | PokeBot | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX\PKHeX-Tools\PokeBot` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX/PKHeX-Tools/PokeBot` | 参考剑盾指针、偏移、内存读取和自动化实现 |
+| SysBot.Base 项目依赖 | `D:\WorkSpace\Pokemon\RNG\Outbreaker\SysBot.Base` | `/mnt/d/WorkSpace/Pokemon/RNG/Outbreaker/SysBot.Base` | owoow 当前引用的 `SysBot.Base.csproj`，构建输出为 `bin\$(Configuration)\net10.0\SysBot.Base.dll` |
 | PKHeX 项目 | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX` | 参考 PKHeX.Core 的 RNG、合法性、结构和版本实现 |
 | CaptureSight 项目 | `D:\WorkSpace\Pokemon\RNG\CaptureSight` | `/mnt/d/WorkSpace/Pokemon/RNG/CaptureSight` | 参考 SWSH RAM offset、pointer chain 和运行时结构 |
 | `swsh-mods-exl` | [GitHub 仓库](https://github.com/Lincoln-LM/swsh-mods-exl) | N/A | 参考 Sword/Shield 1.3.2 的 exlaunch Hook/mod 工程；当前未配置本地副本 |

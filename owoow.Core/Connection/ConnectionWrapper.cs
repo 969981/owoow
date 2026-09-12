@@ -165,17 +165,23 @@ public class ConnectionWrapperAsync(SwitchConnectionConfig Config, Action<string
 
     public async Task DaySkip(CancellationToken token)
     {
-        await Connection.DaySkip(token).ConfigureAwait(false);
+        await SendSysBotCommandAsync("daySkip", token).ConfigureAwait(false);
     }
 
     public async Task DaySkipBack(CancellationToken token)
     {
-        await Connection.DaySkipBack(token).ConfigureAwait(false);
+        await SendSysBotCommandAsync("daySkipBack", token).ConfigureAwait(false);
     }
 
     public async Task ResetTimeNTP(CancellationToken token)
     {
-        await Connection.ResetTimeNTP(token).ConfigureAwait(false);
+        await SendSysBotCommandAsync("resetTimeNTP", token).ConfigureAwait(false);
+    }
+
+    private async Task SendSysBotCommandAsync(string command, CancellationToken token)
+    {
+        var data = Encoding.ASCII.GetBytes($"{command}{(CRLF ? "\r\n" : "")}");
+        await Connection.SendAsync(data, token).ConfigureAwait(false);
     }
 
     public async Task<ulong> GetCurrentTime(CancellationToken token)

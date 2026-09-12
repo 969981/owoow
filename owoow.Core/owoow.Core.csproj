@@ -40,8 +40,6 @@
     <Reference Include="PKHeX.Drawing.PokeSprite">
       <HintPath>..\owoow.WinForms\deps\PKHeX.Drawing.PokeSprite.dll</HintPath>
     </Reference>
-    <Reference Include="SysBot.Base">
-      <HintPath>Connection\deps\SysBot.Base.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\..\Outbreaker\SysBot.Base\SysBot.Base.csproj" />
   </ItemGroup>
 </Project>
