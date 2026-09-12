@@ -34,6 +34,30 @@ Do not assume that similarly named RNG states are interchangeable.
 
 If a relationship is not fully established, mark conclusions as `INFERRED` or `HYPOTHESIS` rather than presenting them as fact.
 
+## Reverse-engineering environment and skill routing
+
+Before using local reverse-engineering tooling for work under `owoow.Core`, read `docs/reverse-engineering-environment.md` in addition to this file.
+
+For IDA-based work, default to the documented IDA Professional 9.4 environment unless another version is explicitly required.
+
+Before execution:
+
+1. choose the smallest necessary reverse-engineering skill,
+2. read the relevant `SKILL.md`,
+3. verify that the required tool/runtime actually exists,
+4. verify the input path and SHA-256,
+5. identify the target file format and architecture,
+6. identify the game/software version or build when known,
+7. record whether the work is static or dynamic analysis.
+
+For IDA automation, prefer the documented `rev-idapython` route and existing IDA 9.4 probe/launcher scripts.
+
+For symbol recovery, prefer `rev-symbol`; for structure recovery, prefer `rev-struct`; for Frida work, prefer `rev-frida`; for local ARM/ARM64 emulation, prefer `rev-unicorn-debug`—but only after the corresponding execution dependency is confirmed present.
+
+Do not assume a Windows-installed tool is in WSL `PATH`.
+
+If the skill exists but the required tool does not, report `skill 已有，执行依赖缺失` and do not pretend the analysis was executed.
+
 ## Reverse-engineering data
 
 For addresses, offsets, signatures, hooks, structures, and constants:
