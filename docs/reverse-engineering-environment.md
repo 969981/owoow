@@ -575,3 +575,29 @@ readelf -h "<path>"   # ELF only
 ```
 
 Do not claim that a local tool, plugin, script, debugger, or skill was executed unless it was actually invoked and its output was observed.
+
+---
+
+## 11. Pokémon Sword/Shield 1.3.2 local research assets
+
+The following paths were verified to exist on the current Windows + WSL workstation. Windows paths are the canonical paths for Windows tools; use the WSL mapping only when running commands from WSL.
+
+The Sword/Shield `1.3.2` labels below are based on the project resource description. Before analyzing a binary, verify the exact file, SHA-256, format, architecture, and build using the preflight record above.
+
+| Resource | Windows path | WSL path | Intended use |
+| --- | --- | --- | --- |
+| Sword unpacked data | `E:\Test\sword` | `/mnt/e/Test/sword` | Pokémon Sword 1.3.2 unpacked files |
+| Shield unpacked data | `E:\Test\shield` | `/mnt/e/Test/shield` | Pokémon Shield 1.3.2 unpacked files |
+| hactool | `E:\Test\hactool` | `/mnt/e/Test/hactool` | NCA/NSP and related unpacking; root executable is `hactool.exe` |
+| nstool v1.9.2 x64 | `E:\Test\nstool-v1.9.2-win_x64` | `/mnt/e/Test/nstool-v1.9.2-win_x64` | NSO/NSP/NCZ and Switch file inspection; executable is `nstool.exe` |
+| PokeBot / SysBot reference | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX\PKHeX-Tools\PokeBot` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX/PKHeX-Tools/PokeBot` | Sword/Shield pointer, offset, memory-read, and automation implementation reference |
+| PKHeX source | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX` | PKHeX.Core legality, RNG, structure, and game-version implementation reference |
+| CaptureSight source | `D:\WorkSpace\Pokemon\RNG\CaptureSight` | `/mnt/d/WorkSpace/Pokemon/RNG/CaptureSight` | SWSH RAM offsets, pointer chains, runtime readers, and structure reference |
+| `swsh-mods-exl` | External repository: `https://github.com/Lincoln-LM/swsh-mods-exl` | N/A | exlaunch-based Sword/Shield 1.3.2 hook and mod project reference; no local clone path configured |
+
+### Usage notes
+
+- Keep game dumps, keys, and generated unpacking output outside this repository unless a task explicitly requires a checked-in artifact. Do not commit `prod.keys` or `title.keys`.
+- Treat local paths as machine-specific and non-portable. If a path changes, update this section and the SWSH reference index together.
+- For a new analysis, record the exact Sword/Shield input path and hash rather than relying only on the parent unpacked-data directory.
+- The user-provided `win\_x64` spelling corresponds to the verified directory name `win_x64` on this workstation.

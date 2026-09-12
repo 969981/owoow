@@ -24,6 +24,23 @@
 6. **Admiral-Fish RaidFinder / RNGWriteups**：补 Raid RNG、xoroshiro 与 seed recovery 背景。
 7. **旧 `swsh-overworld-rng-gui`**：仅用于历史比较，不作为现行算法权威。
 
+### 本地工作站资料路径
+
+以下路径是当前 Windows + WSL 工作站中已确认存在的本地参考资源。机器环境的完整说明见 [`docs/reverse-engineering-environment.md`](../../reverse-engineering-environment.md)。
+
+| 类别 | Windows 路径 | WSL 路径 | 主要用途 |
+| --- | --- | --- | --- |
+| Sword 1.3.2 解包目录 | `E:\Test\sword` | `/mnt/e/Test/sword` | Sword `main`、RomFS/ExeFS 等解包结果参考 |
+| Shield 1.3.2 解包目录 | `E:\Test\shield` | `/mnt/e/Test/shield` | Shield `main`、RomFS/ExeFS 等解包结果参考 |
+| hactool | `E:\Test\hactool` | `/mnt/e/Test/hactool` | NCA/NSP 等 Nintendo Switch 文件解包；可执行文件为 `hactool.exe` |
+| nstool v1.9.2 x64 | `E:\Test\nstool-v1.9.2-win_x64` | `/mnt/e/Test/nstool-v1.9.2-win_x64` | NSO/NSP/NCZ 等文件检查；可执行文件为 `nstool.exe` |
+| PokeBot | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX\PKHeX-Tools\PokeBot` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX/PKHeX-Tools/PokeBot` | 参考剑盾指针、偏移、内存读取和自动化实现 |
+| PKHeX 项目 | `D:\WorkSpace\Pokemon\SaveEditor\PKHeX` | `/mnt/d/WorkSpace/Pokemon/SaveEditor/PKHeX` | 参考 PKHeX.Core 的 RNG、合法性、结构和版本实现 |
+| CaptureSight 项目 | `D:\WorkSpace\Pokemon\RNG\CaptureSight` | `/mnt/d/WorkSpace/Pokemon/RNG/CaptureSight` | 参考 SWSH RAM offset、pointer chain 和运行时结构 |
+| `swsh-mods-exl` | [GitHub 仓库](https://github.com/Lincoln-LM/swsh-mods-exl) | N/A | 参考 Sword/Shield 1.3.2 的 exlaunch Hook/mod 工程；当前未配置本地副本 |
+
+路径状态为 `VERIFIED`；游戏版本标注来自资源说明，实际进行 IDA 或运行时分析前仍需按环境文档完成文件、SHA-256、架构和 Build 校验。
+
 ---
 
 # P0：核心参考资料
