@@ -65,6 +65,26 @@ For memory addresses, offsets, hooks, constants, signatures, or game-specific be
 
 Do not convert a hypothesis into production logic without noting the supporting evidence.
 
+### Local reverse-engineering environment
+
+For tasks involving binary analysis, IDA, IDAPython/IDALib, hooks, symbol or structure recovery, binary diffing, Android/Frida work, CPU emulation, or other local reverse-engineering tooling, read `docs/reverse-engineering-environment.md` before execution.
+
+That document is the authoritative machine-specific record for the current Windows + WSL reverse-engineering environment.
+
+Key requirements:
+
+- Default to IDA Professional 9.4 for IDA work unless the task explicitly requires another version.
+- Do not silently fall back to IDA 9.2.
+- Use the documented absolute paths; do not invent `ida64.exe` or other executable names.
+- Prefer the existing IDA 9.4 probe/launcher scripts documented there instead of creating duplicate launcher logic.
+- Select the minimum necessary installed reverse-engineering skill and read its `SKILL.md` before using it.
+- Skill presence does not prove tool availability.
+- Verify required executables/runtimes and versions before execution.
+- Do not assume a Windows-installed tool is available in WSL `PATH`.
+- Before actual binary analysis, verify the input absolute path, SHA-256, file format, target architecture, target version/build when known, and static/dynamic analysis mode.
+- If a skill is installed but its required execution tool is missing, explicitly report: `skill 已有，执行依赖缺失`.
+- Never claim a local tool or skill was executed unless it was actually invoked and its output was observed.
+
 ## Testing expectations
 
 Prefer deterministic tests for RNG and encounter logic. When modifying an algorithm, preserve or add known input/output vectors where practical.
@@ -82,6 +102,8 @@ Do not change RNG call order only to make a desired output appear correct.
 ## Documentation
 
 Keep durable project-management rules in `docs/project-management.md`.
+
+Keep the local reverse-engineering tool/skill inventory and execution preflight rules in `docs/reverse-engineering-environment.md`.
 
 Keep development, fix, configuration, Git, environment, and repository-operation history under `docs/development-log/YYYY/MM/YYYY-MM-DD.md`, following `docs/development-log/README.md`.
 
