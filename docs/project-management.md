@@ -159,6 +159,15 @@ Do not duplicate `.editorconfig` formatting rules in `AGENTS.md`.
 
 Add another scoped `AGENTS.md` only when a directory develops genuinely different constraints that cannot be expressed cleanly in the existing files.
 
+For local reverse-engineering execution, `docs/reverse-engineering-environment.md` is the machine-specific environment source of truth. Relevant AGENTS rules require AI/Codex to read it before using IDA, IDAPython/IDALib, binary-analysis tools, hooks, symbol/structure recovery skills, Android tooling, CPU emulation, or similar workflows.
+
+Tool and skill rules are intentionally separated:
+
+- a skill may be installed while its execution dependency is missing,
+- a Windows-installed tool must not be assumed to exist in WSL `PATH`,
+- local execution must verify the actual executable/runtime path and version,
+- binary analysis must verify the input path, SHA-256, format, architecture, version/build context, and static/dynamic mode before execution.
+
 ## Documentation layout
 
 Current and target documentation layout:
@@ -166,6 +175,7 @@ Current and target documentation layout:
 ```text
 docs/
 ├── project-management.md
+├── reverse-engineering-environment.md
 ├── development-log/
 │   ├── README.md
 │   └── YYYY/
@@ -181,6 +191,8 @@ docs/
     ├── overworld-generation.md
     └── memory-layout.md
 ```
+
+`docs/reverse-engineering-environment.md` records the current machine-specific reverse-engineering tools, verified/unverified dependencies, absolute paths, installed skills, skill routing rules, and execution preflight requirements.
 
 `docs/development-log/` records development work, fixes, configuration changes, Git/environment operations, and daily results. Follow `docs/development-log/README.md` and keep same-day items in the same dated file.
 
