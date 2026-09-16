@@ -1,0 +1,135 @@
+Pokémon Sword 1.3.2 static reverse-engineering evidence
+Date: 2026-09-16
+
+Input
+-----
+Library name: main(3).elf
+Size: 40065128 bytes
+SHA-256: 689db76a880c6ca5b20308343e6f49268c67f75fd009b7d644a166e18adc0652
+GNU Build ID: a3b75bcd3311385aeed67fbeeb79cbb7bf02f471
+Short BID: A3B75BCD3311385A
+Arch: AArch64 ELF64 little-endian, stripped
+
+Verified function ranges
+------------------------
+D03EA0..D04678  field encounter upstream
+D04750..D04E54  special field encounter upstream (one caller in shake-tree flow)
+D05080..D053C0  fishing field encounter entry
+D30FE0..D311B4  Field GenerationSpec bridge
+D311C0..D317EC  overworld generation policies
+D31910..D31A64  BuildFieldGenerationSpec
+D31BB0..D31E70  common encounter selection
+D328A0..D329C4  weighted ten-slot selector
+D329D0..D32B00  selected-entry conversion
+7662A0..766318   generic field generation entry
+7667A0..766F58   GenerationSpec resolver
+766F60..767140   resolved spec -> Pokémon application
+777F40..778164   shared generation boundary
+7893F0..7894FC   egg chain
+789500..789764   egg default spec + shared call
+789770..789E34   BuildEggGenerationSpec
+1400C70..1400D3C breeding bounded RNG
+14018C0..1401B6C breeding controller
+1629E30..162A984 Zone local setup
+162AD70..162B39C Zone object/spec generation
+DA4720..DA5550   fishing controller/state machine
+DA5550..DA5A3C   fishing.dat resource loader
+DAF350..DAF4D0   fishing runtime -> field encounter entry
+1484780..1484884 symbol runtime manager function
+14B2F50..14B3188 symbol runtime manager function
+DCEFB0..DCF1D0   script keyed entry
+DCF310..DCF520   script keyed entry 2
+E4A340..E4A46C   keyed helper
+E4A470..E4AA28   keyed generator
+E4AA30..E4AE68   keyed helper 2
+
+Direct BL evidence
+------------------
+777F40 callers: 7662B4, 7896F0, 162B07C
+7662A0 callers: A8CB44, A8CDEC, D310D8, E4670C, E48A98, E4A570, E4D5D0, EC7CA8, EC877C, EC950C, F8F8A0, 10444B0, 10B6448, 1235034, 126A724, 14D311C, 1521EF4, 15DD6E0
+D31910 caller: D31068
+D31BB0 callers: D044E0, D04DE8, D0535C
+D328A0 caller: D31CEC
+D329D0 caller: D31D34
+D311C0 callers: D054A0, D31D64
+789770 caller: 789664
+162AD70 callers: 162A4C0, 162A6CC, 162A95C, 162A974
+DA5550 caller: DA47D4
+E4A470 callers: DCF080, DCF384
+E4A340 caller: E4A498
+E4AA30 caller: E4A500
+
+Fishing evidence
+----------------
+DA55F0/DA55F4 -> "script/fishing.dat"
+DA4CB4/DA4CB8 -> "FISHING_OK"
+DA4FB0/DA4FB4 -> "FISHING_NG"
+DAF428 -> D05080
+D0535C -> D31BB0
+
+Symbol resource evidence
+------------------------
+EA2538/EA253C -> "bin/field/param/symbol_encount_mons_param/symbol_encount_mons_param.bin"
+E513A8/E513AC -> "bin/field/param/symbol_encount/ai.blua"
+F1424C/F14250 -> "bin/field/param/encount/encount_symbol_k.bin"
+D5DEAC/D5DEB0 -> "SymbolEncount"
+Shield research addresses 14847B0 and 14B2F80 correspond to Sword functions beginning at 1484780 and 14B2F50.
+Exact indirect resource/runtime -> common field generator edge remains OPEN.
+
+GenerationSpec evidence
+-----------------------
+D31910:
+  spec+28 <- source+00 dword species
+  spec+2C <- source+04 halfword form
+  spec+2E <- source+06 byte level
+  spec+36..40 <- six IV policy/value halfwords
+  spec+48 <- perfect-IV count
+  fixed-seed source flag -> spec+08=1 and source seed -> spec+00
+
+7667A0:
+  tests spec+08
+  reads spec+00 and calls 767700 when fixed
+  resolves sentinel/random fields using local xoroshiro
+
+767700:
+  state s0 = fixedSeed
+  state s1 = 82A2B175229D6A5B
+
+D328A0 exact roll:
+  r = Next32() & 0x7F
+  reject while r > 99
+  cumulative probability across 10 entries, stride 6 bytes
+
+Egg evidence
+------------
+Breeding state: 25A83A8
+14018C0 controller reads daycare slot seed at +2F8 and calls F28FC0 to initialize breeding stream.
+1400C70 is function start for breeding bounded RNG; 1400CA0 is inside the function.
+789500 -> 789770 at 789664
+789500 -> 777F40 at 7896F0
+Egg builder decides species/form/level/nature/ability/item/IV inheritance/PID-shiny fields before shared sink.
+
+Zone evidence
+-------------
+1629E30 obtains a seed and initializes a local xoroshiro through F28FC0.
+162AD70 receives/updates its own RNG state pointer.
+ZoneData +170 copied as species; +174 copied as form.
+162B07C -> 777F40.
+
+Search architecture
+-------------------
+FixedSpecSearcher:
+  fixed GenerationSpec/policies + candidate fixedSeed
+  local rng=(seed,82A2B175229D6A5B)
+  simulate 7667A0 sentinel/random consumption exactly
+  filter EC/PID/IV/size early
+
+EncounterStateSearcher:
+  candidate outer s0/s1
+  simulate source-specific pre-rolls and slot/policy generation
+  derive natural fixedSeed
+  run inner fixed generator
+  consume outer mark
+  filter full target
+
+Do not claim fixedSeed alone controls species, level, natural shiny policy, nature, ability, gender or mark.
