@@ -671,17 +671,42 @@ There are two cases:
 The generic PML/System RNG entry points are:
 
 ```text
-main+0x7660B0   raw 32-bit RNG
-main+0x7660D0   bounded RNG
+main+0x7660B0   raw 32-bit wrapper
+main+0x7660D0   bounded wrapper
 ```
 
-The PML system object is obtained through the global slot at:
+The PML Core is reached through the relocation/GOT entry at:
 
 ```text
 main+0x2617358
 ```
 
-but the internal provider state still needs runtime tracing/hooking if an exact pre-pickup Height/Weight predictor is required.
+which resolves to the actual global PML Core pointer variable at:
+
+```text
+main+0x28F5BA0
+```
+
+Further reverse engineering confirmed that the live PML Core callbacks are:
+
+```text
+PmlCore+0x280 -> main+0x7D1320
+PmlCore+0x288 -> main+0x7D1360
+```
+
+and both default callbacks ultimately call:
+
+```text
+nn::crypto::GenerateCryptographicallyRandomBytes
+```
+
+for fresh random bytes.
+
+Therefore there is no deterministic PML xoroshiro/LCG state inside this `main.elf` to read and advance. Exact ordinary PID / Height / Weight cannot be pure read-only predicted before the future crypto calls occur. For a full before-acceptance preview, use the reserve/replay design documented in:
+
+```text
+docs/research/swsh/SWSH Sword 1.3.2 PML System RNG and Complete Next Egg Preview.md
+```
 
 ---
 
@@ -727,14 +752,18 @@ The egg-local stream can reproduce:
 - HeightScalar
 - WeightScalar
 
-Therefore a truly exact “next egg before pickup” tool needs **two RNG models**:
+Therefore a truly exact “next egg before pickup” tool has two domains:
 
 ```text
-A. cached egg seed -> egg-local xoroshiro stream
-B. current PML/System RNG state -> generic constructor fallback/size stream
+A. cached egg seed -> deterministic egg-local xoroshiro stream
+B. PML/System provider -> fresh Nintendo crypto-random requests
 ```
 
-If the goal is only IV/Nature/Ability/EC, the cached egg seed path is sufficient once the parent/context rules are reproduced. If the goal includes every PID case plus exact Height/Weight, the PML RNG state must also be captured or controlled.
+If the goal is only IV/Nature/Ability/EC, the cached egg seed path is sufficient once the parent/context rules are reproduced.
+
+If the goal includes every PID case plus exact Height/Weight, there is no PML state to advance. A complete pre-acceptance UI must either:
+- reserve statistically correct PML values in advance and inject/replay them at pickup; or
+- wait until generation begins and observe the natural PML outputs.
 
 ---
 
@@ -940,10 +969,15 @@ cached eggSeed / egg-local RNG:
     gender / nature / ability / IV inheritance / IVs / EC
     + PID rerolls for Masuda and/or Shiny Charm
 
-PML/System RNG:
+PML/System provider:
     ordinary same-language/no-Charm single PID fallback
     HeightScalar
     WeightScalar
+
+    default implementation:
+    nn::crypto::GenerateCryptographicallyRandomBytes
 ```
 
-So a pre-pickup predictor is feasible, but an exact predictor for **all** of PID + Height + Weight must capture both RNG domains rather than treating `slot+0x2F8` as the one universal seed.
+So a pre-pickup predictor is feasible for the egg-seed domain, but exact future ordinary PID + Height + Weight are not recoverable from a hidden game PRNG state because the default PML provider has no such state in `main.elf`.
+
+For a complete before-acceptance preview, use the dedicated reserve/replay design in the companion PML document.
