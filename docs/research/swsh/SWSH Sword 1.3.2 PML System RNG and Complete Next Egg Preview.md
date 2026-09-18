@@ -951,3 +951,100 @@ Therefore:
 - a complete before-acceptance UI is still practical through **reserve/replay + EggCreateParam injection** at `main+0x789668`.
 
 This is a cleaner architecture than attempting to locate a nonexistent PML xoroshiro state.
+
+---
+
+## 21. Egg-ready-time fixed fields vs pickup-time random fields
+
+This section states the practical result in the simplest possible form.
+
+### Fields effectively fixed once the egg becomes ready
+
+When the Day Care pending flag becomes:
+
+```text
+slot + 0x300 = 1
+```
+
+the game has already cached:
+
+```text
+slot + 0x2F8 = 64-bit eggSeed
+```
+
+The following breeding outputs are deterministic from that cached egg seed plus the current parent/trainer context:
+
+- IV values and inheritance selections
+- Nature
+- Ability slot
+- Gender
+- Encryption Constant (EC)
+- Species/Form breeding result
+- PID candidates when Masuda Method and/or Shiny Charm activates the egg-local PID loop
+
+The important nuance is that these values are not necessarily stored as a finished child PK8 before pickup. Rather, the cached egg seed is already sufficient to reproduce them deterministically.
+
+> once the egg is ready, these fields can be treated as fixed/predictable as long as the parent/context inputs used by the pickup path are unchanged.
+
+### HeightScalar and WeightScalar are not fixed by eggSeed
+
+For a normal egg, the parameter structure carries:
+
+```text
+HeightParam = 0x0100
+WeightParam = 0x0100
+```
+
+The final scalar values are generated only when the generic Pokémon constructor runs during pickup.
+
+The path is:
+
+```text
+Egg pickup
+  -> generic Pokémon constructor
+  -> PML random interface
+  -> nn::crypto::GenerateCryptographicallyRandomBytes
+  -> HeightScalar / WeightScalar
+```
+
+The normal algorithms are:
+
+```text
+HeightScalar = PmlBounded(129) + PmlBounded(128)
+WeightScalar = PmlBounded(129) + PmlBounded(128)
+```
+
+> HeightScalar and WeightScalar are not derivable from the Day Care eggSeed and are genuinely future random values at the time the egg is merely waiting for pickup.
+
+Their distributions are fixed, but the exact future values are not predictable from game-owned PML state because the default PML provider requests fresh Nintendo cryptographic randomness on demand.
+
+### PID exception
+
+PID depends on breeding mode:
+
+| Egg mode | PID source |
+|---|---|
+| same-language, no Shiny Charm | PML -> Nintendo Crypto during pickup |
+| Shiny Charm | egg-local RNG from eggSeed |
+| Masuda Method | egg-local RNG from eggSeed |
+| Masuda + Shiny Charm | egg-local RNG from eggSeed |
+
+So the simplest classification is:
+
+| Field | Egg ready: fixed/predictable? | Source |
+|---|---:|---|
+| IV | Yes | eggSeed RNG |
+| Nature | Yes | eggSeed RNG / parent rules |
+| Ability | Yes | eggSeed RNG / parent rules |
+| Gender | Yes | eggSeed RNG / species rules |
+| EC | Yes | eggSeed RNG |
+| PID, Masuda/Charm | Yes | eggSeed RNG |
+| PID, ordinary same-language/no Charm | No | PML/Nintendo Crypto at pickup |
+| HeightScalar | No | PML/Nintendo Crypto at pickup |
+| WeightScalar | No | PML/Nintendo Crypto at pickup |
+
+### Operational takeaway
+
+For a read-only Next Egg viewer, IV / Nature / Ability / Gender / EC can be displayed as deterministic predictions before pickup.
+
+ordinary PID / Height / Weight must either be shown as “not generated yet”, observed after construction starts, or reserved in advance and replayed/injected later if an exact before-acceptance preview is desired.
