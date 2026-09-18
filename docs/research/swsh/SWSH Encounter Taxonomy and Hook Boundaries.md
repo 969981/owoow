@@ -12,7 +12,7 @@ Encounter/source-specific selection + outer RNG
         -> final Pokémon
 ```
 
-There is no single global RNG stream for Field, Egg, Zone, Raid, scripted fixed encounters and gifts.
+There is no single global RNG stream for Field, Egg, Zone, Raid, Dynamax Adventure, scripted fixed encounters and gifts.
 
 | Type | Sword 1.3.2 chain | RNG / policy owner | Preferred hook |
 |---|---|---|---|
@@ -20,12 +20,12 @@ There is no single global RNG stream for Field, Egg, Zone, Raid, scripted fixed 
 | Fishing | `DA4720/DA5550` controller/resource; runtime `DAF350 -> D05080 -> D31BB0 -> ...` | Field outer RNG after fishing-source transition | source guard `D05080` + common spec hook |
 | Symbol | resources at `EA24B0`, `E51380`, `F14210`; runtime managers `1484780`, `14B2F50`; common generation sink confirmed but exact indirect bridge open | Field/symbol context; exact bridge still OPEN | symbol source telemetry + guarded `7662A0` |
 | Script fixed / event | `event_encount_data.bin -> E4A470 -> E4AA30 -> E4A570 -> 7662A0 -> 777F40` | event record + keyed/script context | `E4AA30` record-to-spec mapping; guarded `7662A0` |
-| AddPoke / scripted Gift | `add_poke.bin -> E48D70 -> E48A98 -> 7662A0 -> 777F40` | gift/script record | `E48D70` spec builder / `E48A98` callsite |
+| AddPoke / scripted Gift | `add_poke.bin -> E48D70 -> E48A98 -> 7662A0 -> 777F40` | gift/script record; observed path leaves `useFixedSeed=0` | `E48D70` spec builder / `E48A98` callsite |
 | NPC Trade | `field_trade.bin -> E4D5D0 -> 7662A0 -> 777F40` | trade record | trade-record parser + `E4D5D0` |
 | Egg | `14018C0 -> 7893F0 -> 789500 -> 789770 -> 7896F0 -> 777F40` | breeding state `25A83A8`; PML Crypto later for unresolved PID/size | breeding state or post-`789770` spec at `789668` |
 | Zone/Around | `1629E30 -> 162AD70 -> 162B07C -> 777F40` | local Zone xoroshiro state | state after `F28FC0`; spec before `162B07C` |
-| Max Raid / G-Nest | high-confidence caller cluster `EC7CA8 / EC877C / EC950C -> 7662A0 -> 777F40`; secondary path near `10444B0` | raid/nest record + raid-specific seed/policies; exact seed mapping still OPEN | split `EC7xxx..EC9xxx` builders before common spec hook |
-| Dynamax Adventures | `15DDxxx -> 15DD6E0 -> 7662A0 -> 777F40` | Underground Exploration route/node/boss context | builder around `15DDxxx`; callsite `15DD6E0` |
+| Max Raid / G-Nest | runtime seed load `10298A0 -> EC7080 -> EC7CA8/EC877C/EC950C -> 7662A0 -> 777F40`; secondary path near `10444B0` | stored 64-bit Nest seed at active runtime entry `+0x68`; copied directly to `GenerationSpec.fixedSeed`; raid builder also initializes a local RNG from the same seed | `10298A0` / `EC7080`, then branch-specific spec before `7662A0` |
+| Dynamax Adventures | `15DD330 -> 15DD42C..15DD458 -> 15DD6E0 -> 7662A0 -> 777F40` | persistent Underground Exploration xoroshiro state at object `+0x2AB8/+0x2AC0`; one Next output becomes `fixedSeed` | state at `15DD42C`; spec before `15DD6E0` |
 | Battle Tower / Rental | caller region near `E4670C -> 7662A0` | rental/trainer records | source-specific builder |
 | Trainer/Battle NPC | caller region near `1521EF4 -> 7662A0` | trainer data | source-specific builder |
 | Camp NPC Pokémon | caller region near `1235034 -> 7662A0` | camp NPC data | source-specific builder |
@@ -39,7 +39,7 @@ There is no single global RNG stream for Field, Egg, Zone, Raid, scripted fixed 
 162B07C -> 777F40: Zone/Around
 ```
 
-The generic `7662A0 -> 7662B4 -> 777F40` path is shared by Field, Script/Event, Raid, Gift, Trade and several battle/NPC systems. Therefore `7662A0` must not be named or hooked as if it were wild-only.
+The generic `7662A0 -> 7662B4 -> 777F40` path is shared by Field, Script/Event, Raid, Gift, Trade, Dynamax Adventure and several battle/NPC systems. Therefore `7662A0` must not be named or hooked as if it were wild-only.
 
 This LR split is the recommended safety classifier at the final shared boundary.
 
@@ -67,6 +67,17 @@ This LR split is the recommended safety classifier at the final shared boundary.
 
 The local fixed stream uses `(fixedSeed, 0x82A2B175229D6A5B)`.
 
+## PID policy sentinels currently identified
+
+```text
+0x3FFFFFFFF          generic unresolved/random PID policy
+0x1FFFFFFFF          force / guarantee non-shiny (high confidence)
+0xFFFF0002FFFFFFFF   force / guarantee shiny (high confidence)
+0x2FFFFFFFF          distinct policy; exact semantic label still OPEN
+```
+
+`main+0x777370` supports the non-shiny interpretation: it changes PID bit 28 only when the candidate is shiny. `main+0x7773A0` supports the force-shiny interpretation: it preserves an already-shiny candidate and otherwise rewrites the PID so the trainer/PID XOR becomes shiny.
+
 ## Source-specific research boundaries
 
 ### Ordinary Field
@@ -84,22 +95,38 @@ E4AA30   event-record -> GenerationSpec
 E4A570   callsite to 7662A0
 ```
 
-This is currently the best target for mapping explicit shiny-lock, gender, nature, ability and IV policies from event data into the shared spec.
+`E4AA30` now has substantial direct mapping for species/form/level, trainer context, PID policy, gender, nature, ability and IV/perfect-IV policy encoding.
 
 ### Raid / G-Nest
 
 ```text
-EC7CA8
-EC877C
-EC950C
+10298A0  load 64-bit active Nest seed from runtime entry +0x68
+EC7080   raid builder entry; X2 is preserved as raid seed
+EC7CA8   generic-generation branch 1
+EC877C   generic-generation branch 2
+EC950C   generic-generation branch 3
 ```
 
-form a high-confidence raid/nest generic-generation caller cluster. Keep exact per-function names provisional until runtime or full record-to-spec mapping separates their roles.
+The previous “exact raid seed mapping OPEN” status is now closed for this path:
+
+```text
+NestEntry+0x68
+    -> X2 at EC7080
+    -> GenerationSpec+0x00
+GenerationSpec+0x08 = 1
+```
+
+The same seed is also used to initialize a separate raid-builder local RNG context. Model the explicit reinitialization points rather than assuming one continuously advanced stream.
 
 ### Dynamax Adventures
 
 ```text
-15DDxxx  Underground Exploration spec construction
+15DD42C  read state0 from object+0x2AB8
+15DD430  read state1 from object+0x2AC0
+15DD434  state0+state1 -> next output
+15DD448/450 write advanced state back
+15DD454  next output -> GenerationSpec.fixedSeed
+15DD458  useFixedSeed = 1
 15DD6E0  callsite to 7662A0
 ```
 
@@ -110,6 +137,8 @@ E48D70   gift-specific spec population
 E48A98   callsite to 7662A0
 ```
 
+The observed builder forces level 50 and its caller leaves `fixedSeed=0/useFixedSeed=0`; unresolved random PID/EC/size values therefore do not inherit the raid-style deterministic seed path.
+
 ### Zone/Around
 
 ```text
@@ -118,36 +147,10 @@ E48A98   callsite to 7662A0
 162B07C  direct call to 777F40
 ```
 
-### Egg
-
-```text
-789770   egg-specific deterministic generation
-789668   post-egg-spec boundary
-7896F0   direct call to 777F40
-```
-
 ## Seed Searcher rule
 
 Do not collapse all searching into one fixed seed.
 
-- `FixedSpecSearcher` searches the local inner generation after the `GenerationSpec` policy is fixed.
-- `EncounterStateSearcher` searches the outer Field subsystem RNG and is required when natural slot/level/policy/mark behavior must be preserved.
-- Egg needs its own breeding-state searcher because it owns `25A83A8`, not the Field stream.
-- Zone needs its own local-state searcher because its RNG is initialized under `1629E30`.
-- Raid/Nest and Dynamax Adventures require their own upstream seed/policy analysis before they can be faithfully searched; merely forcing `GenerationSpec.fixedSeed` reproduces only the inner generator, not necessarily the natural source selection.
+`FixedSpecSearcher` searches the local inner generation after the spec policy is fixed. `EncounterStateSearcher` searches the outer subsystem RNG and is required for natural slot/level/policy/mark behavior. Egg, Zone, Raid and Dynamax Adventure each have distinct RNG ownership and need source-specific state searchers.
 
-## Current OPEN items
-
-1. Exact indirect Symbol manager -> common Field generation callback.
-2. Complete `E4AA30` event-record field map, especially shiny lock/force semantics.
-3. Raid/Nest seed ownership and transformation into `GenerationSpec.fixedSeed`.
-4. Exact individual roles of `EC7CA8`, `EC877C`, `EC950C` and secondary `10444B0` G-Nest path.
-5. Full Dynamax Adventure route/node/boss record map around `15DDxxx`.
-6. Runtime validation of which story gifts use `add_poke.bin -> E48D70 -> E48A98`.
-7. Mystery Gift: determine whether the subsystem constructs via GenerationSpec or deserializes supplied Pokémon/Wonder Card data directly.
-
-For the detailed cross-system map, see:
-
-```text
-docs/research/swsh/SWSH Sword 1.3.2 Wild Fixed Raid Gift Generation Chains.md
-```
+For Raid specifically, the stored Nest seed is the natural input to the raid builder and is copied into `fixedSeed`; for Dynamax Adventure, the natural input is the 128-bit persistent object RNG state whose next output becomes `fixedSeed`.
