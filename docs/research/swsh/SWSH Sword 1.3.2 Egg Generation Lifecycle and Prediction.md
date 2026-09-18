@@ -31,12 +31,37 @@ However, **HeightScalar / WeightScalar are a special case**: in the current Swor
 
 ---
 
-## 2. Day Care slot state
+## 2. Day Care slot state and runtime address
 
-The relevant Day Care entry stride is:
+The offsets `+0x2F8` / `+0x300` are **not fixed main-module addresses**. They are offsets inside a dynamically allocated Day Care save/runtime object.
+
+The script-facing callers resolve the Day Care base through the following pointer chain:
+
+```text
+p1          = *(u64 *)(main + 0x2610798)
+saveRoot    = *(u64 *)(p1 + 0x0)
+daycareBase = *(u64 *)(saveRoot + 0x270)
+```
+
+This is visible around `main+0x14BB890` and `main+0xDC3D20`.
+
+Common pointer notation:
+
+```text
+daycareBase = [[main+0x2610798]+0x0]+0x270
+```
+
+The Day Care entry stride is:
 
 ```text
 0x2B8 bytes per Day Care slot
+```
+
+So:
+
+```text
+slot = daycareBase + slotIndex * 0x2B8
+slotIndex = 0 or 1
 ```
 
 The currently identified control fields are:
@@ -47,11 +72,14 @@ The currently identified control fields are:
 | `+0x2F8` | cached 64-bit egg seed |
 | `+0x300` | egg-ready flag |
 
-The two Day Care slots are selected using:
+Concrete offsets from `daycareBase`:
 
-```text
-slotBase = daycareBase + slotIndex * 0x2B8
-```
+| Slot | counter | egg seed | ready |
+|---:|---:|---:|---:|
+| 0 | `+0x2F4` | `+0x2F8` | `+0x300` |
+| 1 | `+0x5AC` | `+0x5B0` | `+0x5B8` |
+
+The final absolute RAM address changes between runs because `daycareBase` is a pointer, not a fixed `main+offset` object.
 
 ---
 
@@ -348,95 +376,226 @@ It consumes the completed parameter structure and creates the actual Pokémon ob
 
 ---
 
-## 7. Which values are already predictable before pickup?
+## 7. Cached egg seed: lifetime and RNG state
 
-Once:
+The value at `slot+0x2F8` is a **seed**, not a continuously advancing RNG state.
 
-```text
-[slot+0x300] == 1
-```
-
-and the cached:
+When the egg-ready roll succeeds:
 
 ```text
-eggSeed = [slot+0x2F8]
+main+0x14016F0 -> main+0xF28FE0
 ```
 
-is available, a predictor can read the current parent data and emulate the same egg-local RNG.
+calls:
 
-### Predictable from cached egg seed + parent/context state
+```text
+nn::crypto::GenerateCryptographicallyRandomBytes(..., 8)
+```
 
-The current static analysis supports pre-pickup prediction of:
+and writes a fresh random 64-bit value to:
 
-- Species
-- Form
-- Gender
-- Nature
-- Ability
-- random IVs
-- inherited IV positions
-- which parent supplies each inherited IV
-- Encryption Constant (EC)
-- PID
-- shiny / non-shiny
-- shiny XOR class
+```text
+slot+0x2F8
+```
 
-The exact RNG consumption sequence must include conditional branches such as:
+### Stored seed lifetime
 
-- fixed-gender species
-- Everstone
-- both parents holding Everstone
-- Destiny Knot
-- Power Items
-- repeated IV-index selections
-- special species/form breeding cases
-- Masuda Method
-- Shiny Charm
+The stored value behaves as follows:
 
-Because those branches change the number/order of RNG calls.
+1. New egg becomes ready -> a fresh 64-bit value overwrites `slot+0x2F8`.
+2. While the egg waits for pickup -> the stored value does not advance.
+3. On pickup -> the game reads the value, but does not clear or mutate `slot+0x2F8`.
+4. After pickup -> `slot+0x300` becomes 0, while the old seed can remain in `slot+0x2F8`.
+5. The next successful egg-generation event overwrites it with another cryptographically generated 64-bit value.
+
+Therefore a seed read is meaningful as the pending egg seed only when:
+
+```text
+slot+0x300 == 1
+```
+
+or when a runtime tool observes the `0 -> 1` ready transition.
+
+### Pickup-time egg RNG initialization
+
+At pickup:
+
+```text
+main+0x1401A20  LDR X1,[slot+0x2F8]
+main+0x1401A2C  BL  main+0xF28FC0
+```
+
+The deterministic egg-local RNG object is at:
+
+```text
+main+0x25A83A8
+```
+
+and `main+0xF28FC0` initializes it as:
+
+```text
+state0       = eggSeed
+state1       = 0x82A2B175229D6A5B
+originalSeed = eggSeed
+```
+
+The third qword is retained as the original seed; the active RNG transition uses `state0/state1`.
+
+### Egg-local RNG transition
+
+The callback used by breeding code is:
+
+```text
+main+0x1400C70
+```
+
+Its raw xoroshiro128+-style transition is equivalent to:
+
+```cpp
+uint32_t nextRaw32()
+{
+    uint64_t s0 = state0;
+    uint64_t s1 = state1;
+
+    uint32_t out = (uint32_t)(s0 + s1);
+
+    uint64_t t = s0 ^ s1;
+    state0 = rotl64(s0, 24) ^ t ^ (t << 16);
+    state1 = rotl64(t, 37);
+
+    return out;
+}
+```
+
+For bounded requests `RNG(n)`, `main+0x1400C70` uses mask/rejection logic and returns:
+
+```text
+0 <= result < n
+```
+
+Examples used by the egg generator include `RNG(25)`, `RNG(100)`, `RNG(6)`, `RNG(2)`, `RNG(32)`, and `RNG(0xFFFFFFFF)`.
+
+So the cached 64-bit seed does not get incremented. Instead, it initializes a separate two-qword xoroshiro state that advances every time the breeding generator requests a random value.
 
 ---
 
-## 8. PID / shiny is determined during pickup construction, but is predictable earlier
+## 8. EC and PID: exact relationship to the cached egg seed
 
-The PID is not stored as a finished value in the Day Care slot.
+### EC
 
-Instead, the cached seed is consumed at pickup by the egg-local RNG.
+The Encryption Constant is directly generated by the egg-local RNG.
 
-Core PID/shiny section:
+At:
+
+```text
+main+0x789C0C
+```
+
+the code calls the Egg Context RNG callback with:
+
+```text
+RNG(0xFFFFFFFF)
+```
+
+and stores the result at:
+
+```text
+EggCreateParam + 0x10
+```
+
+which is later written into the Pokémon object by the generic constructor.
+
+Therefore:
+
+> Given the same cached `eggSeed`, the same parent/context data, and the same branch-dependent RNG consumption before `main+0x789C0C`, EC is deterministic.
+
+EC is **not simply** `low32(seed + constant)`, because many breeding decisions consume the egg RNG before EC, including gender/nature/ability/IV inheritance and random IV generation.
+
+### PID has two different RNG paths
+
+The egg-specific PID/shiny section is:
 
 ```text
 main+0x789C20 .. main+0x789C88
 ```
 
-Shiny check:
+It computes the egg-specific reroll count:
+
+| Situation | egg-local PID attempts |
+|---|---:|
+| same language, no Shiny Charm | 0 |
+| same language + Shiny Charm | 2 |
+| different-language parents | 6 |
+| different-language + Shiny Charm | 8 |
+
+This distinction is important.
+
+#### Path A — Masuda and/or Shiny Charm
+
+When the calculated reroll count is non-zero, each candidate PID is generated by the **egg-local RNG**:
+
+```text
+RNG(0xFFFFFFFF)
+```
+
+then checked by:
 
 ```text
 main+0x777350
 ```
 
-The standard Gen VIII shiny XOR is used:
+using the trainer ID32 and the standard shiny XOR condition.
+
+Therefore in these cases:
 
 ```text
-TID ^ SID ^ PID_hi ^ PID_lo < 16
+eggSeed -> egg-local RNG stream -> EC -> candidate PID(s)
 ```
 
-The egg path implements the Sword/Shield breeding roll counts:
+and PID/shiny can be predicted from the cached seed once all earlier egg-RNG consumption is reproduced.
 
-| Situation | PID attempts |
-|---|---:|
-| normal | 1 |
-| Shiny Charm | 2 |
-| different-language parents | 6 |
-| different-language + Shiny Charm | 8 |
+#### Path B — ordinary same-language egg without Shiny Charm
+
+When the egg-specific reroll count is zero, `main+0x789770` leaves the PID sentinel:
+
+```text
+EggCreateParam+0x18 = 0x3FFFFFFFF
+EggCreateParam+0x35 = 1
+```
+
+The later generic constructor `main+0x7667A0` resolves that sentinel.
+
+Because the egg parameter has:
+
+```text
+param+0x08 = 0
+```
+
+there is no constructor-local RNG pointer, so `main+0x7668C0` falls back to:
+
+```text
+main+0x7660B0
+```
+
+the generic PML/System raw RNG.
 
 Therefore:
 
-> Shiny is generated only when the pickup path constructs the egg Pokémon, but after the egg-ready seed has been cached it can be predicted before pickup by replaying the egg-local RNG.
+> For an ordinary same-language/no-Shiny-Charm egg, the final single PID roll is **not determined by the cached Day Care egg seed alone**.
+
+This corrects the earlier simplified statement that every egg PID can be reconstructed solely from `slot+0x2F8`.
+
+### PID / EC relationship
+
+- EC always comes from the egg-local RNG seeded by `slot+0x2F8`.
+- With Masuda and/or Shiny Charm, PID candidates also come from that same egg-local stream after EC.
+- With neither condition, EC comes from the egg-local stream but PID comes from the separate PML/System RNG.
+
+So there is no universal formula `PID = f(EC)`; their relationship depends on which PID path is active.
 
 ---
 
-## 9. Height / Weight are different
+## 9. Height / Weight and their relationship to PID
 
 The egg parameter structure is initialized with:
 
@@ -445,93 +604,137 @@ WeightParam = 0x0100
 HeightParam = 0x0100
 ```
 
-These values mean “generate a normal random scalar”.
+These values mean normal random scalar generation.
 
-The generic constructor later calls:
+The generic constructor processes:
 
 ```text
 main+0x7667A0
   -> main+0x7672E0
 ```
 
-For `0x0100`, the normal size path is:
-
-```text
-main+0x767320
-```
-
-When a local constructor RNG state is supplied, it resolves the scalar from that local state.
-
-However, the egg construction parameter currently sets the constructor RNG selector at `param+0x08` to zero.
-
-That causes the constructor-local RNG pointer to be null and the size resolver falls back to:
+For `0x0100`, because the egg parameter has no constructor-local RNG pointer (`param+0x08 == 0`), the size resolver falls back to the generic PML/System bounded RNG:
 
 ```text
 main+0x7660D0
 ```
 
-which dispatches through the generic PML/System RNG.
+The order is:
 
-For normal size:
+```text
+HeightScalar:
+    Random(129)
+    Random(128)
+
+WeightScalar:
+    Random(129)
+    Random(128)
+```
+
+So:
 
 ```text
 HeightScalar = Random(129) + Random(128)
 WeightScalar = Random(129) + Random(128)
 ```
 
-The resulting range is `0..255` with the triangular distribution already documented in the broader SWSH analysis.
+Both are `0..255` with the triangular distribution.
 
-### Consequence
+The parameter/write path confirms:
 
-The cached Day Care egg seed at `+0x2F8` does **not by itself determine HeightScalar / WeightScalar** in this path.
+```text
+param+0x4C -> HeightScalar -> main+0x775700 -> PK8 +0x50
+param+0x4A -> WeightScalar -> main+0x775850 -> PK8 +0x51
+```
 
-So:
+### Cached egg seed relationship
 
-- PID/IV/Nature/Ability/etc. can be reconstructed from the cached egg seed.
-- Height/Weight are assigned when the generic Pokémon constructor runs at pickup.
-- To predict Height/Weight before pickup, a runtime tool must additionally know/control the relevant PML/System RNG state and account for intervening consumers.
-- Alternatively, a hook can override `HeightParam/WeightParam` after `main+0x789770` and before `main+0x777F40`.
+There is no direct `eggSeed -> Height/Weight` mapping in this path.
+
+Height/Weight consume the **PML/System RNG**, not the egg-local RNG initialized from `slot+0x2F8`.
+
+### Relationship to PID
+
+There are two cases:
+
+1. **ordinary same-language/no-Shiny-Charm egg**
+   - PID is also resolved by the PML/System RNG.
+   - The generic constructor consumes the PID raw roll before resolving Height and Weight.
+   - Thus PID and Height/Weight are positions in the same PML RNG stream (with bounded-rejection behavior for the size calls).
+
+2. **Masuda and/or Shiny Charm**
+   - PID is already resolved by the egg-local RNG before the generic constructor.
+   - The generic constructor skips the PID fallback.
+   - Height/Weight still use the PML/System RNG.
+   - In this case PID and Height/Weight are from separate RNG streams.
+
+The generic PML/System RNG entry points are:
+
+```text
+main+0x7660B0   raw 32-bit RNG
+main+0x7660D0   bounded RNG
+```
+
+The PML system object is obtained through the global slot at:
+
+```text
+main+0x2617358
+```
+
+but the internal provider state still needs runtime tracing/hooking if an exact pre-pickup Height/Weight predictor is required.
 
 ---
 
-## 10. Direct-read vs prediction
-
-The distinction is important for tool design.
+## 10. What can actually be predicted before pickup?
 
 ### Directly readable before pickup
 
 ```text
-Day Care pending flag
-Day Care cached egg seed
+egg-ready flag             slot+0x300
+cached 64-bit egg seed     slot+0x2F8
 both parent Pokémon
 trainer ID/context
 Shiny Charm state
 ```
 
-### Not directly present as a finished child Pokémon
+### Not directly cached as a finished child
 
 ```text
 child PK8
-child PID field
-child IV block
 child EC
+child PID
+child IV block
 child HeightScalar
 child WeightScalar
 ```
 
-### Can be calculated before pickup
+### Deterministic from cached egg seed + parent/context
 
-Most breeding attributes can be emulated from:
+The egg-local stream can reproduce:
+
+- Species/Form branches that use the egg RNG
+- Gender
+- Nature
+- Ability
+- IV inheritance selections
+- random IVs
+- EC
+- PID candidates when Masuda and/or Shiny Charm activates the egg-local PID loop
+
+### Requires the separate PML/System RNG state
+
+- ordinary same-language/no-Charm final PID
+- HeightScalar
+- WeightScalar
+
+Therefore a truly exact “next egg before pickup” tool needs **two RNG models**:
 
 ```text
-cached egg seed
-+ current parent data
-+ trainer ID
-+ charm/language/item state
-+ exact RNG-consumption model
+A. cached egg seed -> egg-local xoroshiro stream
+B. current PML/System RNG state -> generic constructor fallback/size stream
 ```
 
-This is a **prediction**, not a direct PK8 read.
+If the goal is only IV/Nature/Ability/EC, the cached egg seed path is sufficient once the parent/context rules are reproduced. If the goal includes every PID case plus exact Height/Weight, the PML RNG state must also be captured or controlled.
 
 ---
 
@@ -714,19 +917,33 @@ final egg PK8
 
 ## 14. Key takeaway
 
-The most accurate wording is:
+The most accurate model is:
 
-> **The next egg has a seed before pickup, not a complete PK8.**
+> **The Day Care caches a pending-egg flag and a 64-bit seed, not a complete PK8.**
 
-When the Day Care decides that an egg exists, it caches a 64-bit seed at `slot+0x2F8`. The complete Pokémon is generated when the player receives the egg.
+Runtime address:
 
-This means a pre-pickup next-egg viewer is feasible:
+```text
+daycareBase = [[main+0x2610798]+0]+0x270
+slot        = daycareBase + slotIndex*0x2B8
 
-- detect `slot+0x300 == 1`
-- read `slot+0x2F8`
-- snapshot both parents and trainer context
-- emulate the egg-local generator
+eggSeed     = slot+0x2F8
+eggReady    = slot+0x300
+```
 
-For the core breeding result, this can reveal the next egg before accepting it.
+The cached seed itself does not advance. It is replaced by a fresh cryptographic 64-bit value only when a new egg becomes ready. At pickup it initializes the egg-local RNG state at `main+0x25A83A8`, whose xoroshiro state then advances as breeding logic consumes random values.
 
-For exact HeightScalar / WeightScalar, the viewer additionally needs the generic PML/System RNG state or a pickup-time hook, because those two values are not fixed solely by the cached Day Care egg seed.
+RNG ownership is split:
+
+```text
+cached eggSeed / egg-local RNG:
+    gender / nature / ability / IV inheritance / IVs / EC
+    + PID rerolls for Masuda and/or Shiny Charm
+
+PML/System RNG:
+    ordinary same-language/no-Charm single PID fallback
+    HeightScalar
+    WeightScalar
+```
+
+So a pre-pickup predictor is feasible, but an exact predictor for **all** of PID + Height + Weight must capture both RNG domains rather than treating `slot+0x2F8` as the one universal seed.
