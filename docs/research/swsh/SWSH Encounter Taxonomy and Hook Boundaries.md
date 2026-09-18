@@ -24,7 +24,7 @@ There is no single global RNG stream for Field, Egg, Zone, Raid, Dynamax Adventu
 | NPC Trade | `field_trade.bin -> E4D5D0 -> 7662A0 -> 777F40` | trade record | trade-record parser + `E4D5D0` |
 | Egg | `14018C0 -> 7893F0 -> 789500 -> 789770 -> 7896F0 -> 777F40` | breeding state `25A83A8`; PML Crypto later for unresolved PID/size | breeding state or post-`789770` spec at `789668` |
 | Zone/Around | `1629E30 -> 162AD70 -> 162B07C -> 777F40` | local Zone xoroshiro state | state after `F28FC0`; spec before `162B07C` |
-| Max Raid / G-Nest | runtime seed load `10298A0 -> EC7080 -> EC7CA8/EC877C/EC950C -> 7662A0 -> 777F40`; secondary path near `10444B0` | stored 64-bit Nest seed at active runtime entry `+0x68`; copied directly to `GenerationSpec.fixedSeed`; raid builder also initializes a local RNG from the same seed | `10298A0` / `EC7080`, then branch-specific spec before `7662A0` |
+| Max Raid / G-Nest | fresh seed `14B8ED0 -> F28FE0 -> 14260F0`; advance `F0A5E0 -> 14260F0`; consume `10298A0 -> EC7080 -> 7662A0 -> 777F40` | save-backed `NestEntry+0x68`; fresh value from Crypto64, deterministic frames advance by `+0x82A2B175229D6A5B` | seed write `14260F0`; advance `F0A5E0`; builder `EC7080` |
 | Dynamax Adventures | `15DD330 -> 15DD42C..15DD458 -> 15DD6E0 -> 7662A0 -> 777F40` | persistent Underground Exploration xoroshiro state at object `+0x2AB8/+0x2AC0`; one Next output becomes `fixedSeed` | state at `15DD42C`; spec before `15DD6E0` |
 | Battle Tower / Rental | caller region near `E4670C -> 7662A0` | rental/trainer records | source-specific builder |
 | Trainer/Battle NPC | caller region near `1521EF4 -> 7662A0` | trainer data | source-specific builder |
@@ -99,24 +99,79 @@ E4A570   callsite to 7662A0
 
 ### Raid / G-Nest
 
-```text
-10298A0  load 64-bit active Nest seed from runtime entry +0x68
-EC7080   raid builder entry; X2 is preserved as raid seed
-EC7CA8   generic-generation branch 1
-EC877C   generic-generation branch 2
-EC950C   generic-generation branch 3
-```
-
-The previous “exact raid seed mapping OPEN” status is now closed for this path:
+Persistent save path:
 
 ```text
-NestEntry+0x68
-    -> X2 at EC7080
-    -> GenerationSpec+0x00
-GenerationSpec+0x08 = 1
+main+0x2610798
+    -> saveRoot
+    -> saveRoot+0x248 = Nest save block
+
+NestEntry = nestBlock + areaIndex*0xA68 + denIndex*0x18
+NestEntry+0x68 = 64-bit persistent Raid seed
 ```
 
-The same seed is also used to initialize a separate raid-builder local RNG context. Model the explicit reinitialization points rather than assuming one continuously advanced stream.
+The exact setter is:
+
+```text
+14260F0  SetNestSeed64 (research name)
+```
+
+It has only three direct writers:
+
+```text
+14B9094   fresh Crypto64 seed commit
+14B9200   fallback fresh Crypto64 seed commit
+F0A6EC    deterministic existing-seed advance commit
+```
+
+Fresh seed path:
+
+```text
+14B8ED0
+    -> F28FE0
+    -> nn::crypto::GenerateCryptographicallyRandomBytes(...,8)
+    -> 14260F0
+    -> NestEntry+0x68
+```
+
+Existing seed advance path:
+
+```text
+F0A5E0
+    oldSeed = NestEntry+0x68
+    init xoroshiro with (oldSeed, 0x82A2B175229D6A5B)
+    first output = oldSeed + 0x82A2B175229D6A5B
+    -> 14260F0
+    -> NestEntry+0x68
+```
+
+Therefore the persistent Raid frame equation is:
+
+```text
+seed[n] = seed[0] + n * 0x82A2B175229D6A5B  (mod 2^64)
+```
+
+Backward step is subtraction by the same constant. Since the constant is odd, this additive sequence has full `2^64` period.
+
+Raid generation consumes the saved seed through:
+
+```text
+10298A0  load NestEntry+0x68 into X2
+EC7080   preserve X2 as raidSeed
+EC7770   representative GenerationSpec.fixedSeed write
+EC7CA8 / EC877C / EC950C -> generic generation branches
+7662A0 -> 777F40
+```
+
+The same raid seed is also used to initialize separate Raid-builder local RNG contexts, so model explicit reinitialization points rather than one continuously advanced stream.
+
+Bulk area refresh is centered at:
+
+```text
+F0A950
+```
+
+which iterates den records and invokes `F0A5E0` for qualifying entries. Multi-area callers around `F06F60`, `F07280`, and `1426440` orchestrate areas 0/1/2. Exact user-visible trigger names still need dynamic classification.
 
 ### Dynamax Adventures
 
@@ -153,4 +208,16 @@ Do not collapse all searching into one fixed seed.
 
 `FixedSpecSearcher` searches the local inner generation after the spec policy is fixed. `EncounterStateSearcher` searches the outer subsystem RNG and is required for natural slot/level/policy/mark behavior. Egg, Zone, Raid and Dynamax Adventure each have distinct RNG ownership and need source-specific state searchers.
 
-For Raid specifically, the stored Nest seed is the natural input to the raid builder and is copied into `fixedSeed`; for Dynamax Adventure, the natural input is the 128-bit persistent object RNG state whose next output becomes `fixedSeed`.
+For Raid specifically, the natural persistent frame is now closed:
+
+```text
+read current NestEntry+0x68
+    -> jump frame N with seed + N*0x82A2B175229D6A5B
+    -> reproduce EC7080 Raid table/policy construction
+    -> feed same seed into GenerationSpec.fixedSeed
+    -> replay shared fixed Pokémon resolver
+```
+
+A not-yet-created fresh Raid seed cannot be predicted read-only before `F28FE0`, because that first value comes from Nintendo Crypto. Once it is stored, later deterministic advances are predictable until the next fresh reseed.
+
+For Dynamax Adventure, the natural input remains the 128-bit persistent object RNG state whose next output becomes `fixedSeed`.
