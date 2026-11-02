@@ -1,0 +1,163 @@
+name: Sync upstream and publish owoow
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Rebuild/re-upload the current upstream revision even without new commits'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/upstream-sync-release.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owoow-upstream-sync-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      should_release: ${{ steps.sync.outputs.should_release }}
+      upstream_sha: ${{ steps.sync.outputs.upstream_sha }}
+      release_tag: ${{ steps.sync.outputs.release_tag }}
+      target_sha: ${{ steps.sync.outputs.target_sha }}
+    steps:
+      - name: Checkout local master with complete history
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch and safely merge official upstream
+        id: sync
+        shell: bash
+        env:
+          FORCE_RELEASE: ${{ inputs.force_release || 'false' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/LegoFigure11/owoow.git
+          git fetch --no-tags upstream master
+          upstream_sha="$(git rev-parse upstream/master)"
+          synced=false
+
+          if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo "Upstream update found: $upstream_sha"
+            if ! git merge --no-ff --no-edit upstream/master; then
+              git merge --abort || true
+              echo "::error::Upstream merge conflicted. Local changes were preserved; resolve the conflict manually."
+              exit 1
+            fi
+            git push origin HEAD:refs/heads/master
+            synced=true
+          else
+            echo "Already includes latest upstream: $upstream_sha"
+          fi
+
+          should_release=false
+          if [[ "$synced" == true || "$FORCE_RELEASE" == true ]]; then
+            should_release=true
+          fi
+
+          {
+            echo "should_release=$should_release"
+            echo "upstream_sha=$upstream_sha"
+            echo "release_tag=upstream-${upstream_sha:0:12}"
+            echo "target_sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: sync
+    if: needs.sync.outputs.should_release == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout synchronized revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build self-contained Windows x64 package
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:RUNNER_TEMP "owoow-publish"
+          dotnet publish ./owoow.WinForms/owoow.WinForms.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $publishDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item ./LICENSE.txt $publishDir
+          Copy-Item ./README.md $publishDir
+          if (-not (Test-Path (Join-Path $publishDir "owoow.exe"))) {
+            throw "Publish did not produce owoow.exe"
+          }
+          $zip = Join-Path $env:RUNNER_TEMP "owoow-win-x64.zip"
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -Force
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: owoow-win-x64
+          path: ${{ runner.temp }}/owoow-win-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [sync, build]
+    if: needs.sync.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: owoow-win-x64
+          path: release-assets
+
+      - name: Create or update a GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.sync.outputs.release_tag }}
+          TARGET_SHA: ${{ needs.sync.outputs.target_sha }}
+          UPSTREAM_SHA: ${{ needs.sync.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${UPSTREAM_SHA:0:12}"
+          cat > release-notes.md <<EOF
+          Automated Windows x64 build of [LegoFigure11/owoow](https://github.com/LegoFigure11/owoow).
+
+          - Official upstream revision: [${UPSTREAM_SHA}](https://github.com/LegoFigure11/owoow/commit/${UPSTREAM_SHA})
+          - Synchronized local revision: [${TARGET_SHA}](https://github.com/${GH_REPO}/commit/${TARGET_SHA})
+          - Package: `owoow-win-x64.zip`, built for Windows x64 with .NET 10 included.
+          - Local research documents and extra branches are preserved by a regular non-destructive Git merge.
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/owoow-win-x64.zip --clobber
+          else
+            gh release create "$TAG" release-assets/owoow-win-x64.zip \
+              --target "$TARGET_SHA" \
+              --title "owoow Windows x64 (upstream $short_sha)" \
+              --notes-file release-notes.md \
+              --latest
+          fi
